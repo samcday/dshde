@@ -17,5 +17,7 @@ fi
 
 ip=$(hcloud server ip dev-env)
 ssh-keygen -R $ip >/dev/null 2>&1
-until ssh root@$ip cloud-init status -w >/dev/null 2>&1; do sleep 1; done
-exec ssh root@$ip
+if ! ssh root@$ip cloud-init status -w >/dev/null 2>&1; then
+  echo waiting for server to initialize...
+  until ssh root@$ip cloud-init status -w >/dev/null 2>&1; do sleep 1; done
+fi
