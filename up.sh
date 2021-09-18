@@ -16,8 +16,7 @@ if ! hcloud server describe dev-env >/dev/null 2>&1; then
 fi
 
 ip=$(hcloud server ip dev-env)
-ssh-keygen -R $ip >/dev/null 2>&1
-if ! ssh root@$ip cloud-init status -w >/dev/null 2>&1; then
-  echo waiting for server to initialize...
-  until ssh root@$ip cloud-init status -w >/dev/null 2>&1; do sleep 1; done
-fi
+echo waiting for server to initialize
+until ssh -o "StrictHostKeyChecking=no" root@$ip cloud-init status -w >/dev/null 2>&1; do sleep 1; done
+
+echo server initialized

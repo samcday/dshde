@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -ueo pipefail
 
 export HCLOUD_TOKEN=${HCLOUD_TOKEN}
 export DEBIAN_FRONTEND=noninteractive
@@ -14,7 +15,7 @@ apt-get install -y hcloud-cli docker.io ./sysbox-ce_0.4.0-0.ubuntu-focal_amd64.d
 
 # Docker buildx
 mkdir -p ~/.docker/cli-plugins
-wget https://github.com/docker/buildx/releases/download/v0.6.3/buildx-v0.6.3.linux-amd64 -o ~/.docker/cli-plugins/docker-buildx
+wget https://github.com/docker/buildx/releases/download/v0.6.3/buildx-v0.6.3.linux-amd64 -O ~/.docker/cli-plugins/docker-buildx
 chmod a+x ~/.docker/cli-plugins/docker-buildx
 
 # persistent volume setup
