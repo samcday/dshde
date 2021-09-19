@@ -35,6 +35,10 @@ ssh -o "StrictHostKeyChecking=no" -o "SendEnv=HCLOUD_TOKEN" root@$server_ip bash
 set -ueo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
+if ! id -u dev >/dev/null 2>&1; then
+  useradd -d /mnt/home dev -s /bin/bash
+fi
+
 touch /.devenv # So some scripts know when they're running in the dev server already.
 
 # package deps
@@ -64,8 +68,14 @@ if ! mountpoint /mnt >/dev/null 2>&1; then
   mount $device_path /mnt
 fi
 mkdir -p /mnt/docker
-mkdir -p /mnt/home
+mkdir -p /mnt/home/.ssh
 mkdir -p /mnt/work
+
+chown -R dev:dev /mnt/home
+
+if [[ ! -f /mnt/home/.ssh/authorized_keys ]]; then
+  cat /root/.ssh/authorized_keys | sudo -iu dev 'cat > ~/.ssh/authorized_keys'
+fi
 
 # Ensure Docker daemon uses persistent volume for containers + images storage.
 systemctl stop docker.service
@@ -82,3 +92,5 @@ fi
 cd dshde
 docker buildx build . -t dev-env-image
 HERE
+
+exec ./workon.sh dshde

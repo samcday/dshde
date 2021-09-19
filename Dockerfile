@@ -7,6 +7,8 @@ RUN --mount=type=cache,target=/var/cache/pacman \
     pacman --noconfirm -Syu && \
     pacman --noconfirm -S \
     base-devel \
+    git \
+    docker \
     openssh \
     python-pip \
     # Jetbrains Projector requirements
