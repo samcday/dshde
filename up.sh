@@ -39,7 +39,7 @@ touch /.devenv # So some scripts know when they're running in the dev server alr
 
 # package deps
 if [[ ! -f sysbox-ce_0.4.0-0.ubuntu-focal_amd64.deb ]]; then
-  wget https://downloads.nestybox.com/sysbox/releases/v0.4.0/sysbox-ce_0.4.0-0.ubuntu-focal_amd64.deb
+  wget https://downloads.nestybox.com/sysbox/releases/v0.4.0/sysbox-ce_0.4.0-0.ubuntu-focal_amd64.deb -O sysbox-ce_0.4.0-0.ubuntu-focal_amd64.deb
 fi
 apt-get update
 apt-get install -y hcloud-cli docker.io ./sysbox-ce_0.4.0-0.ubuntu-focal_amd64.deb linux-headers-$(uname -r)
