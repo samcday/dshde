@@ -6,4 +6,4 @@ until ! hcloud server describe dev-env >/dev/null 2>&1; do
   hcloud server delete dev-env >/dev/null 2>&1 || true
 done
 
-rm .ssh/*.socket
+rm .state/*
