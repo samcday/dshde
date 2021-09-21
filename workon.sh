@@ -18,8 +18,12 @@ docker container port $ws 22/tcp | head -n1 | cut -d':' -f2
 HERE
 )
 
-ssh_command="ssh -A -o ControlMaster=auto -o ControlPath=.ssh/$1.socket -o ControlPersist=3600 -o ConnectionAttempts=10 -o StrictHostKeyChecking=no -J root@$(hcloud server ip dev-env) dev@localhost -p $port"
+ssh_command="ssh -A -o ControlMaster=auto -o ControlPath=.ssh/$1.socket -o ControlPersist=600 -o ConnectionAttempts=10 -o StrictHostKeyChecking=no -J root@$(hcloud server ip dev-env) -p $port dev@localhost"
 
-until $ssh_command echo hi mom >/dev/null 2>&1; do sleep 1; done
+( until echo | $ssh_command echo hi mom >/dev/null 2>&1; do sleep 1; done )
 
-exec $ssh_command -o 'RemoteCommand=cd /work && $SHELL --login' -t
+if [ -t 0 ]; then
+  exec $ssh_command -o 'RemoteCommand=cd /work && $SHELL --login' -t
+fi
+
+$ssh_command -T -o 'RemoteCommand=cd /work && $SHELL --login' <& 0

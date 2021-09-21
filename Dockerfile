@@ -24,9 +24,5 @@ RUN echo 'dev ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/dev
 # ENV PATH=$PATH:/home/.local/bin
 # WORKDIR /work
 
-# # Install Projector + JB IDEs
-# RUN pip3 install projector-installer --user
-# RUN projector --accept-license self-update
-# RUN --mount=type=cache,target=/home/.projector/cache,uid=1000 \
-#     projector install --no-auto-run "GoLand 2020.3.5" && \
-#     projector install --no-auto-run "CLion 2020.3.4"
+# Install Projector.
+RUN pip3 install projector-installer --user
