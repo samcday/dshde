@@ -6,8 +6,7 @@ location=fsn1
 server_type=cpx31
 ssh_command="ssh -F ssh_config"
 
-[ ./up.sh -nt .state/ ] && {
-
+{
 # Bring up a server if there isn't one already.
 if ! find .state/ip -mmin -10 >/dev/null 2>&1; then
   if ! hcloud server describe dev-env >/dev/null 2>&1; then
@@ -29,16 +28,17 @@ if ! find .state/ip -mmin -10 >/dev/null 2>&1; then
   echo HCLOUD_TOKEN=$HCLOUD_TOKEN >> /etc/environment
 INIT
   fi
+
+  hcloud server ip dev-env > .state/ip
 fi
 
-server_ip=$(hcloud server ip dev-env)
-echo $server_ip > .state/ip
-touch .state
-
-# Server's up. Do some quick'n'dirty provisioning on it.
+# Server's up. Wait for it to be responsive on SSH.
+server_ip=$(cat .state/ip)
 until echo | $ssh_command root@$server_ip echo hi mom >/dev/null 2>&1; do sleep 1; done
 
-time $ssh_command root@$server_ip bash -ueo pipefail <<'HERE'
+# quick, very bad bashops provisioning over the SSH pipe.
+if [ .state/provisioned -ot .state/ip ] || [ .state/provisioned -ot up.sh ]; then
+$ssh_command root@$server_ip bash -ueo pipefail <<'HERE'
 # SSH server tough. Sacred knowledge make SSH server strong.
 # https://www.sshaudit.com/hardening_guides.html#ubuntu_20_04_lts
 if [[ ! -f /etc/ssh/sshd_config.d/ssh-audit_hardening.conf ]]; then
@@ -54,7 +54,7 @@ if [[ ! -f /etc/ssh/sshd_config.d/ssh-audit_hardening.conf ]]; then
 fi
 HERE
 
-time $ssh_command root@$server_ip bash -euo pipefail <<'HERE'
+$ssh_command root@$server_ip bash -euo pipefail <<'HERE'
 if ! cloud-init status -w >/dev/null 2>&1; then
   echo cloud-init failed
   exit 1
@@ -125,6 +125,9 @@ HERE
 dockerfile_hash=$(shasum -a 512 Dockerfile | cut -d' ' -f1)
 if ! echo | $ssh_command root@$server_ip docker inspect dev-env-image:$dockerfile_hash >/dev/null 2>&1; then
   time cat Dockerfile | $ssh_command root@$server_ip docker buildx build - -t dev-env-image:$dockerfile_hash -t dev-env-image
+fi
+
+touch .state/provisioned
 fi
 }>&2
 
