@@ -1,36 +1,44 @@
 #!/usr/bin/env bash
-set -ueEo pipefail
+set -ueo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 location=fsn1
 server_type=cpx31
+ssh_command="ssh -F ssh_config"
 
-{
-if ! hcloud server describe dev-env >/dev/null 2>&1; then
-  # A persistent volume is kept alive at all times. It stores "hot" environment data: Docker images, home directory, git working directories, etc.
-  # Block store isn't necessarily cheap. 100GB is already going to cost you 5EUR a month.
-  # How much space you'll need depends on what projects you're working on - how greedy they are with disk, caches, etc.
-  # In future it could be possible to automate a simple "mothballing" process that writes the entire volume disk image to an object store.
-  if ! hcloud volume describe dev-env >/dev/null 2>&1; then
-    echo creating volume
-    hcloud volume create --name dev-env --size 10 --location $location
-    hcloud volume enable-protection dev-env delete
-  fi
+[ ./up.sh -nt .state/ ] && {
 
-  echo creating server
-  hcloud server create --name dev-env --image ubuntu-20.04 --ssh-key key --location $location --type $server_type --volume dev-env --user-data-from-file - <<-INIT
-#!/usr/bin/env bash
-set -ueo pipefail
-apt-get update
-echo HCLOUD_TOKEN=$HCLOUD_TOKEN >> /etc/environment
+# Bring up a server if there isn't one already.
+if ! find .state/ip -mmin -10 >/dev/null 2>&1; then
+  if ! hcloud server describe dev-env >/dev/null 2>&1; then
+    # A persistent volume is kept alive at all times. It stores "hot" environment data: Docker images, home directory, git working directories, etc.
+    # Block store isn't necessarily cheap. 100GB is already going to cost you 5EUR a month.
+    # How much space you'll need depends on what projects you're working on - how greedy they are with disk, caches, etc.
+    # In future it could be possible to automate a simple "mothballing" process that writes the entire volume disk image to an object store.
+    if ! hcloud volume describe dev-env >/dev/null 2>&1; then
+      echo creating volume
+      hcloud volume create --name dev-env --size 10 --location $location
+      hcloud volume enable-protection dev-env delete
+    fi
+
+    echo creating server
+    hcloud server create --name dev-env --image ubuntu-20.04 --ssh-key key --location $location --type $server_type --volume dev-env --user-data-from-file - <<-INIT
+  #!/usr/bin/env bash
+  set -ueo pipefail
+  apt-get update
+  echo HCLOUD_TOKEN=$HCLOUD_TOKEN >> /etc/environment
 INIT
+  fi
 fi
 
-# Server's up. Do some quick'n'dirty provisioning on it.
-ssh_command="ssh -o ControlMaster=auto -o ControlPath=.ssh/%C.socket -o ControlPersist=600 -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o UpdateHostKeys=no"
-until server_ip=$(hcloud server ip dev-env); echo | $ssh_command root@$server_ip echo hi mom >/dev/null 2>&1; do sleep 1; done
+server_ip=$(hcloud server ip dev-env)
+echo $server_ip > .state/ip
+touch .state
 
-$ssh_command root@$server_ip bash -ueo pipefail <<'HERE'
+# Server's up. Do some quick'n'dirty provisioning on it.
+until echo | $ssh_command root@$server_ip echo hi mom >/dev/null 2>&1; do sleep 1; done
+
+time $ssh_command root@$server_ip bash -ueo pipefail <<'HERE'
 # SSH server tough. Sacred knowledge make SSH server strong.
 # https://www.sshaudit.com/hardening_guides.html#ubuntu_20_04_lts
 if [[ ! -f /etc/ssh/sshd_config.d/ssh-audit_hardening.conf ]]; then
@@ -46,7 +54,7 @@ if [[ ! -f /etc/ssh/sshd_config.d/ssh-audit_hardening.conf ]]; then
 fi
 HERE
 
-$ssh_command root@$server_ip bash -euo pipefail <<'HERE'
+time $ssh_command root@$server_ip bash -euo pipefail <<'HERE'
 if ! cloud-init status -w >/dev/null 2>&1; then
   echo cloud-init failed
   exit 1
@@ -116,12 +124,13 @@ HERE
 
 dockerfile_hash=$(shasum -a 512 Dockerfile | cut -d' ' -f1)
 if ! echo | $ssh_command root@$server_ip docker inspect dev-env-image:$dockerfile_hash >/dev/null 2>&1; then
-  cat Dockerfile | $ssh_command root@$server_ip docker buildx build - -t dev-env-image:$dockerfile_hash -t dev-env-image
+  time cat Dockerfile | $ssh_command root@$server_ip docker buildx build - -t dev-env-image:$dockerfile_hash -t dev-env-image
 fi
 }>&2
 
+server_ip=$(cat .state/ip)
 if [ ! -t 0 ]; then
-  exec $ssh_command -T dev@$server_ip <&0
+  exec $ssh_command ${SSH_EXTRA:-} -T dev@$server_ip bash <&0
 else
-  exec $ssh_command dev@$server_ip
+  exec $ssh_command ${SSH_EXTRA:-} dev@$server_ip
 fi

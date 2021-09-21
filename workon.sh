@@ -19,7 +19,7 @@ docker container port $1 22/tcp | head -n1 | cut -d':' -f2
 HERE
 )
 
-ssh_command="ssh -A -o ControlMaster=auto -o ControlPath=.ssh/$1.socket -o ControlPersist=600 -o ConnectionAttempts=10 -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -J root@$(hcloud server ip dev-env) -p $port dev@localhost"
+ssh_command="ssh -F ssh_config -J root@$(cat .state/ip) -p $port dev@localhost"
 
 ( until echo | $ssh_command echo hi mom >/dev/null 2>&1; do sleep 1; done )
 

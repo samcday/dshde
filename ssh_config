@@ -1,0 +1,8 @@
+Host *
+    ControlMaster auto
+    ControlPath .state/%C.socket
+    ControlPersist 600
+    UserKnownHostsFile /dev/null
+    StrictHostKeyChecking no
+    UpdateHostKeys no
+    ForwardAgent yes
