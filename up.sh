@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-set -ueo pipefail
+set -ueEo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")"
 
 location=fsn1
 server_type=cpx31
 
+{
 if ! hcloud server describe dev-env >/dev/null 2>&1; then
   # A persistent volume is kept alive at all times. It stores "hot" environment data: Docker images, home directory, git working directories, etc.
   # Block store isn't necessarily cheap. 100GB is already going to cost you 5EUR a month.
@@ -25,13 +27,14 @@ INIT
 fi
 
 # Server's up. Do some quick'n'dirty provisioning on it.
-ssh_command="ssh -o ControlMaster=auto -o ControlPath=.ssh/%C.socket -o ControlPersist=600 -o StrictHostKeyChecking=no -o UpdateHostKeys=no"
-until server_ip=$(hcloud server ip dev-env); $ssh_command root@$server_ip echo hi mom >/dev/null 2>&1; do sleep 1; done
+ssh_command="ssh -o ControlMaster=auto -o ControlPath=.ssh/%C.socket -o ControlPersist=600 -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o UpdateHostKeys=no"
+until server_ip=$(hcloud server ip dev-env); echo | $ssh_command root@$server_ip echo hi mom >/dev/null 2>&1; do sleep 1; done
 
 $ssh_command root@$server_ip bash -ueo pipefail <<'HERE'
 # SSH server tough. Sacred knowledge make SSH server strong.
 # https://www.sshaudit.com/hardening_guides.html#ubuntu_20_04_lts
 if [[ ! -f /etc/ssh/sshd_config.d/ssh-audit_hardening.conf ]]; then
+  echo ssh hardening
   rm /etc/ssh/ssh_host_*
   ssh-keygen -t rsa -b 4096 -f /etc/ssh/ssh_host_rsa_key -N ""
   ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N ""
@@ -44,31 +47,40 @@ fi
 HERE
 
 $ssh_command root@$server_ip bash -euo pipefail <<'HERE'
-. /etc/environment
 if ! cloud-init status -w >/dev/null 2>&1; then
   echo cloud-init failed
   exit 1
 fi
 
+. /etc/environment
+export HCLOUD_TOKEN
 export DEBIAN_FRONTEND=noninteractive
 
 if ! id -u dev >/dev/null 2>&1; then
   useradd -d /mnt/home dev -s /bin/bash
 fi
 
+if [[ ! -f /etc/sudoers.d/dev ]]; then
+  echo 'dev ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/dev
+fi
+
 touch /.devenv # So some scripts know when they're running in the dev server already.
 
 # package deps
 if [[ ! -f sysbox-ce_0.4.0-0.ubuntu-focal_amd64.deb ]]; then
-  wget https://downloads.nestybox.com/sysbox/releases/v0.4.0/sysbox-ce_0.4.0-0.ubuntu-focal_amd64.deb -O sysbox-ce_0.4.0-0.ubuntu-focal_amd64.deb
+  wget -q https://downloads.nestybox.com/sysbox/releases/v0.4.0/sysbox-ce_0.4.0-0.ubuntu-focal_amd64.deb -O sysbox-ce_0.4.0-0.ubuntu-focal_amd64.deb
 fi
 
-apt-get install -y hcloud-cli docker.io ./sysbox-ce_0.4.0-0.ubuntu-focal_amd64.deb linux-headers-$(uname -r)
+if ! dpkg -s docker.io >/dev/null 2>&1; then
+  apt-get install -y hcloud-cli docker.io ./sysbox-ce_0.4.0-0.ubuntu-focal_amd64.deb linux-headers-$(uname -r)
+fi
+
+usermod -a -G docker dev
 
 # Docker buildx
 mkdir -p ~/.docker/cli-plugins
 if [[ ! -f ~/.docker/cli-plugins/docker-buildx ]]; then
-  wget https://github.com/docker/buildx/releases/download/v0.6.3/buildx-v0.6.3.linux-amd64 -O ~/.docker/cli-plugins/docker-buildx
+  wget -q https://github.com/docker/buildx/releases/download/v0.6.3/buildx-v0.6.3.linux-amd64 -O ~/.docker/cli-plugins/docker-buildx
 fi
 chmod a+x ~/.docker/cli-plugins/docker-buildx
 
@@ -95,21 +107,21 @@ fi
 
 # Ensure Docker daemon uses persistent volume for containers + images storage.
 if ! mountpoint /var/lib/docker >/dev/null 2>&1; then
-  systemctl stop docker.service
+  systemctl stop docker.service >/dev/null 2>&1
   rm -rf /var/lib/docker
   mkdir -p /var/lib/docker
   mount --bind /mnt/docker /var/lib/docker
 fi
-
-# clone project into root homedir and build the env image
-if [[ ! -d dshde ]]; then
-  git clone https://github.com/samcday/dshde.git
-fi
-
-cd dshde
-docker buildx build . -t dev-env-image
 HERE
 
-if [ -t 0 ]; then
-  exec ./workon.sh dshde
+dockerfile_hash=$(shasum -a 512 Dockerfile | cut -d' ' -f1)
+if ! echo | $ssh_command root@$server_ip docker inspect dev-env-image:$dockerfile_hash >/dev/null 2>&1; then
+  cat Dockerfile | $ssh_command root@$server_ip docker buildx build - -t dev-env-image:$dockerfile_hash -t dev-env-image
+fi
+}>&2
+
+if [ ! -t 0 ]; then
+  exec $ssh_command -T dev@$server_ip <&0
+else
+  exec $ssh_command dev@$server_ip
 fi

@@ -20,9 +20,5 @@ RUN systemctl enable sshd.service
 RUN rmdir /home && useradd -d /home -m dev
 RUN echo 'dev ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/dev
 
-# USER dev
-# ENV PATH=$PATH:/home/.local/bin
-# WORKDIR /work
-
 # Install Projector.
-RUN pip3 install projector-installer --user
+RUN pip3 install projector-installer
