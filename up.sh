@@ -34,10 +34,10 @@ fi
 
 # Server's up. Wait for it to be responsive on SSH.
 server_ip=$(cat .state/ip)
-until echo | $ssh_command root@$server_ip echo hi mom >/dev/null 2>&1; do sleep 1; done
+until $ssh_command -n root@$server_ip echo hi mom >/dev/null 2>&1; do sleep 1; done
 
 # quick, very bad bashops provisioning over the SSH pipe.
-if [ .state/provisioned -ot .state/ip ] || [ .state/provisioned -ot up.sh ]; then
+if [ .state/provisioned -ot .state/ip ] || [ .state/provisioned -ot up.sh ] || [ .state/provisioned -ot Dockerfile ]; then
 $ssh_command root@$server_ip bash -ueo pipefail <<'HERE'
 if ! cloud-init status -w >/dev/null 2>&1; then
   echo cloud-init failed
@@ -108,6 +108,8 @@ mkdir -p /mnt/work
 chown dev:dev /mnt/home
 chown dev:dev /mnt/work
 
+sudo -iu dev bash -c "mkdir -p ~dev/.projector/{cache,configs,apps}"
+
 if [[ ! -f ~dev/.ssh/authorized_keys ]]; then
   cat ~/.ssh/authorized_keys | sudo -iu dev bash -c 'mkdir -m 0700 ~/.ssh; cat > ~/.ssh/authorized_keys'
 fi
@@ -123,7 +125,7 @@ fi
 HERE
 
 dockerfile_hash=$(shasum -a 512 Dockerfile | cut -d' ' -f1)
-if ! echo | $ssh_command root@$server_ip docker inspect dev-env-image:$dockerfile_hash >/dev/null 2>&1; then
+if ! $ssh_command -n root@$server_ip docker inspect dev-env-image:$dockerfile_hash >/dev/null 2>&1; then
   time cat Dockerfile | $ssh_command root@$server_ip docker buildx build - -t dev-env-image:$dockerfile_hash -t dev-env-image
 fi
 

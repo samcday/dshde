@@ -22,7 +22,7 @@ HERE
 
 ssh_command="ssh -F ssh_config -J root@$(cat .state/ip) -p $port dev@localhost"
 
-until echo | $ssh_command echo hi mom >/dev/null 2>&1; do sleep 1; done
+until $ssh_command -n echo hi mom >/dev/null 2>&1; do sleep 1; done
 
 if [ -t 0 ]; then
   exec $ssh_command -t -o 'RemoteCommand=cd /work && $SHELL --login'
