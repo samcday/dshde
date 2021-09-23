@@ -6,31 +6,43 @@ location=fsn1
 server_type=cpx31
 ssh_command="ssh -F ssh_config"
 
-{
-# Bring up a server if there isn't one already.
-if ! find .state/ip -mmin -10 >/dev/null 2>&1; then
-  if ! hcloud server describe dev-env >/dev/null 2>&1; then
-    # A persistent volume is kept alive at all times. It stores "hot" environment data: Docker images, home directory, git working directories, etc.
-    # Block store isn't necessarily cheap. 100GB is already going to cost you 5EUR a month.
-    # How much space you'll need depends on what projects you're working on - how greedy they are with disk, caches, etc.
-    # In future it could be possible to automate a simple "mothballing" process that writes the entire volume disk image to an object store.
-    if ! hcloud volume describe dev-env >/dev/null 2>&1; then
-      echo creating volume
-      hcloud volume create --name dev-env --size 10 --location $location
-      hcloud volume enable-protection dev-env delete
+(
+  if [[ -f .state/ip ]]; then
+    if ! hcloud server describe dev-env >/dev/null 2>&1; then
+      rm .state/*
     fi
+  fi
+) >/dev/null 2>&1 &
 
-    echo creating server
-    hcloud server create --name dev-env --image ubuntu-20.04 --ssh-key key --location $location --type $server_type --volume dev-env --user-data-from-file - <<-INIT
+{
+until server_ip="$(cat .state/ip 2>/dev/null || true)"; $ssh_command -n -o"ConnectTimeout=5" root@$server_ip echo hi mom >/dev/null 2>&1; do
+  sleep 1
+
+  if ! find .state/ip -mmin -10 >/dev/null 2>&1; then
+    # Bring up a server if there isn't one already.
+    if ! hcloud server describe dev-env >/dev/null 2>&1; then
+      # A persistent volume is kept alive at all times. It stores "hot" environment data: Docker images, home directory, git working directories, etc.
+      # Block store isn't necessarily cheap. 100GB is already going to cost you 5EUR a month.
+      # How much space you'll need depends on what projects you're working on - how greedy they are with disk, caches, etc.
+      # In future it could be possible to automate a simple "mothballing" process that writes the entire volume disk image to an object store.
+      if ! hcloud volume describe dev-env >/dev/null 2>&1; then
+        echo creating volume
+        hcloud volume create --name dev-env --size 10 --location $location
+        hcloud volume enable-protection dev-env delete
+      fi
+
+      echo creating server
+      hcloud server create --name dev-env --image ubuntu-20.04 --ssh-key key --location $location --type $server_type --volume dev-env --user-data-from-file - <<-INIT
 #!/usr/bin/env bash
 set -ueo pipefail
 apt-get update
 echo HCLOUD_TOKEN=$HCLOUD_TOKEN >> /etc/environment
 INIT
-  fi
+    fi
 
-  hcloud server ip dev-env > .state/ip
-fi
+    hcloud server ip dev-env > .state/ip
+  fi
+done
 
 # Server's up. Wait for it to be responsive on SSH.
 server_ip=$(cat .state/ip)
