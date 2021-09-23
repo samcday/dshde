@@ -25,7 +25,7 @@ ssh_command="ssh -F ssh_config -J root@$(cat .state/ip) -p $port dev@localhost"
 until $ssh_command -n echo hi mom >/dev/null 2>&1; do sleep 1; done
 
 if [ -t 0 ]; then
-  exec $ssh_command -t -o 'RemoteCommand=cd /work && $SHELL --login'
+  exec $ssh_command ${WS_SSH_EXTRA:-} -t -o 'RemoteCommand=cd /work && $SHELL --login'
 fi
 
-exec $ssh_command -T -o 'RemoteCommand=cd /work && $SHELL --login' <& 0
+exec $ssh_command ${WS_SSH_EXTRA:-} -T -o 'RemoteCommand=cd /work && $SHELL --login' <& 0

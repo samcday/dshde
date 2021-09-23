@@ -7,6 +7,7 @@ RUN --mount=type=cache,target=/var/cache/pacman \
     pacman --noconfirm -Syu && \
     pacman --noconfirm -S \
     base-devel \
+    man \
     git \
     docker \
     openssh \
