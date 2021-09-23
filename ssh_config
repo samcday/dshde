@@ -2,8 +2,8 @@ Host *
     ControlMaster auto
     ControlPath .state/%r-%h.socket
     ControlPersist 30
-    ServerAliveInterval 5
-    ServerAliveCountMax 3
+    ServerAliveInterval 1
+    ServerAliveCountMax 5
     UserKnownHostsFile /dev/null
     StrictHostKeyChecking no
     UpdateHostKeys no
