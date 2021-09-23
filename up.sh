@@ -56,6 +56,40 @@ if ! cloud-init status -w >/dev/null 2>&1; then
   exit 1
 fi
 
+cat > ~/dshde-wind-down.sh <<'WINDDOWN'
+#!/usr/bin/env bash
+set -ueo pipefail
+if [[ "$(loginctl list-sessions)" == "No sessions." ]]; then
+  docker stop $(docker ps -q)
+fi
+WINDDOWN
+
+cat > ~/dshde-shutdown.sh <<'SHUTDOWN'
+#!/usr/bin/env bash
+set -ueo pipefail
+if [[ "$(loginctl list-sessions)" == "No sessions." ]]; then
+  systemctl stop docker.{service,socket}
+  if ! mountpoint /var/lib/docker >/dev/null 2>&1; then
+    umount /var/lib/docker
+  fi
+  if ! mountpoint /var/lib/docker >/dev/null 2>&1; then
+    umount /mnt
+  fi
+  . /etc/environment
+  export HCLOUD_TOKEN
+  hcloud volume detach dev-env || true
+  hcloud server delete dev-env
+fi
+SHUTDOWN
+
+if ! systemctl status dshde-wind-down.timer >/dev/null 2>&1; then
+  systemd-run -u dshde-wind-down --on-boot=55m --on-unit-active=1h --timer-property=AccuracySec=1 bash ~/dshde-wind-down.sh
+fi
+
+if ! systemctl status dshde-shutdown.timer >/dev/null 2>&1; then
+  systemd-run -u dshde-shutdown --on-boot=59m --on-unit-active=1h --timer-property=AccuracySec=1 bash ~/dshde-shutdown.sh
+fi
+
 # SSH server tough. Sacred knowledge make SSH server strong.
 # https://www.sshaudit.com/hardening_guides.html#ubuntu_20_04_lts
 if [[ ! -f /etc/ssh/sshd_config.d/ssh-audit_hardening.conf ]]; then
@@ -89,7 +123,7 @@ if [[ ! -f sysbox-ce_0.4.0-0.ubuntu-focal_amd64.deb ]]; then
 fi
 
 if ! dpkg -s docker.io >/dev/null 2>&1; then
-  apt-get install -y hcloud-cli docker.io ./sysbox-ce_0.4.0-0.ubuntu-focal_amd64.deb linux-headers-$(uname -r)
+  apt-get install -y hcloud-cli docker.io ./sysbox-ce_0.4.0-0.ubuntu-focal_amd64.deb
 fi
 
 usermod -a -G docker dev
