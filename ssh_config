@@ -1,7 +1,7 @@
 Host *
     ControlMaster auto
-    ControlPath .state/%C.socket
-    ControlPersist 300
+    ControlPath .state/%r-%h.socket
+    ControlPersist 30
     ServerAliveInterval 5
     ServerAliveCountMax 3
     UserKnownHostsFile /dev/null
