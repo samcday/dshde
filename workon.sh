@@ -2,25 +2,23 @@
 set -ueo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
-port=$(./up.sh <<HERE
+ip=$(./up.sh <<HERE
 set -ueo pipefail
 {
 mkdir -p /mnt/work/$1
-if ! docker inspect $1 >/dev/null 2>&1; then
-  echo creating pod $1
-  docker create --runtime=sysbox-runc --name $1 -h $1 -p 22 -v/mnt/home:/home -v /home/.projector/configs -v /mnt/work/$1:/work dev-env-image /sbin/init
+if ! sudo lxc-info $1 >/dev/null 2>&1; then
+  sudo lxc-copy -o /dev/stdout -n .root -N $1 -B lvm -s -a
+  echo "lxc.mount.entry = /mnt/work/$1 work none bind,create=dir 0 0" | sudo tee -a /var/lib/lxc/$1/config > /dev/null
 fi
-if ! docker ps | grep $1 >/dev/null 2>&1; then
-  echo starting pod $1
-  docker start $1
-fi
-docker exec $1 chown dev:dev /home/.projector/configs
+sudo lxc-start $1 2> >(grep -v "Container is already running" >&2)
 } >&2
-docker container port $1 22/tcp | head -n1 | cut -d':' -f2
+sudo lxc-info -i -H $1 | head -n1
 HERE
 )
 
-ssh_command="ssh -F ssh_config -J root@$(cat .state/ip) -p $port dev@localhost"
+ssh_command="ssh -F ssh_config -J root@$(cat .state/ip) dev@$ip"
+echo $ssh_command
+exit
 
 until $ssh_command -n echo hi mom >/dev/null 2>&1; do sleep 1; done
 

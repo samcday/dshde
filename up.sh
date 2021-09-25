@@ -32,7 +32,7 @@ until server_ip="$(cat .state/ip 2>/dev/null || true)"; $ssh_command -n -o"Conne
       fi
 
       echo creating server
-      hcloud server create --name dev-env --image ubuntu-20.04 --ssh-key key --location $location --type $server_type --volume dev-env --user-data-from-file - <<-INIT
+      hcloud server create --name dev-env --image debian-11 --ssh-key key --location $location --type $server_type --volume dev-env --user-data-from-file - <<-INIT
 #!/usr/bin/env bash
 set -ueo pipefail
 apt-get update
@@ -50,7 +50,7 @@ until $ssh_command -n root@$server_ip echo hi mom >/dev/null 2>&1; do sleep 1; d
 
 # quick, very bad bashops provisioning over the SSH pipe.
 if [ .state/provisioned -ot .state/ip ] || [ .state/provisioned -ot up.sh ] || [ .state/provisioned -ot Dockerfile ]; then
-$ssh_command root@$server_ip bash -ueo pipefail <<'HERE'
+$ssh_command root@$server_ip server_ip=$server_ip bash -ueo pipefail <<'HERE'
 if ! cloud-init status -w >/dev/null 2>&1; then
   echo cloud-init failed
   exit 1
@@ -60,7 +60,7 @@ cat > ~/dshde-wind-down.sh <<'WINDDOWN'
 #!/usr/bin/env bash
 set -ueo pipefail
 if [[ "$(loginctl list-sessions)" == "No sessions." ]]; then
-  docker stop $(docker ps -q)
+  for c in $(lxc-ls -1 --running); do lxc-stop $c; done
 fi
 WINDDOWN
 
@@ -68,11 +68,11 @@ cat > ~/dshde-shutdown.sh <<'SHUTDOWN'
 #!/usr/bin/env bash
 set -ueo pipefail
 if [[ "$(loginctl list-sessions)" == "No sessions." ]]; then
-  systemctl stop docker.{service,socket}
-  if ! mountpoint /var/lib/docker >/dev/null 2>&1; then
-    umount /var/lib/docker
+  for c in $(lxc-ls -1 --running); do lxc-stop $c; done
+  if mountpoint /var/lib/lxc >/dev/null 2>&1; then
+    umount /var/lib/lxc
   fi
-  if ! mountpoint /var/lib/docker >/dev/null 2>&1; then
+  if mountpoint /mnt >/dev/null 2>&1; then
     umount /mnt
   fi
   . /etc/environment
@@ -91,14 +91,14 @@ if ! systemctl status dshde-shutdown.timer >/dev/null 2>&1; then
 fi
 
 # SSH server tough. Sacred knowledge make SSH server strong.
-# https://www.sshaudit.com/hardening_guides.html#ubuntu_20_04_lts
+# https://www.sshaudit.com/hardening_guides.html#debian_11
 if [[ ! -f /etc/ssh/sshd_config.d/ssh-audit_hardening.conf ]]; then
-  rm /etc/ssh/ssh_host_*
+  rm -f /etc/ssh/ssh_host_*
   ssh-keygen -t rsa -b 4096 -f /etc/ssh/ssh_host_rsa_key -N ""
   ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N ""
-  awk '$5 >= 3071' /etc/ssh/moduli > /etc/ssh/moduli.safe
-  mv /etc/ssh/moduli.safe /etc/ssh/moduli
   sed -i 's/^\#HostKey \/etc\/ssh\/ssh_host_\(rsa\|ed25519\)_key$/HostKey \/etc\/ssh\/ssh_host_\1_key/g' /etc/ssh/sshd_config
+  awk '$5 >= 3071' /etc/ssh/moduli > /etc/ssh/moduli.safe
+  mv -f /etc/ssh/moduli.safe /etc/ssh/moduli
   echo -e "\n# Restrict key exchange, cipher, and MAC algorithms, as per sshaudit.com\n# hardening guide.\nKexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512,diffie-hellman-group-exchange-sha256\nCiphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr\nMACs hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,umac-128-etm@openssh.com\nHostKeyAlgorithms ssh-ed25519,ssh-ed25519-cert-v01@openssh.com,sk-ssh-ed25519@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com,rsa-sha2-256,rsa-sha2-512,rsa-sha2-256-cert-v01@openssh.com,rsa-sha2-512-cert-v01@openssh.com" > /etc/ssh/sshd_config.d/ssh-audit_hardening.conf
   systemctl restart sshd
 fi
@@ -107,73 +107,73 @@ fi
 export HCLOUD_TOKEN
 export DEBIAN_FRONTEND=noninteractive
 
-if ! id -u dev >/dev/null 2>&1; then
-  useradd -d /mnt/home dev -s /bin/bash
-fi
-
-if [[ ! -f /etc/sudoers.d/dev ]]; then
-  echo 'dev ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/dev
-fi
-
-touch /.devenv # So some scripts know when they're running in the dev server already.
+if ! id -u dev >/dev/null 2>&1; then useradd -d /mnt/home dev -s /bin/bash; fi
+if [[ ! -f /etc/sudoers.d/dev ]]; then echo 'dev ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/dev; fi
 
 # package deps
-if [[ ! -f sysbox-ce_0.4.0-0.ubuntu-focal_amd64.deb ]]; then
-  wget -q https://downloads.nestybox.com/sysbox/releases/v0.4.0/sysbox-ce_0.4.0-0.ubuntu-focal_amd64.deb -O sysbox-ce_0.4.0-0.ubuntu-focal_amd64.deb
-fi
+if ! dpkg -s lxc >/dev/null 2>&1; then apt-get install -y hcloud-cli lxc gpg dirmngr; fi
 
-if ! dpkg -s docker.io >/dev/null 2>&1; then
-  apt-get install -y hcloud-cli docker.io ./sysbox-ce_0.4.0-0.ubuntu-focal_amd64.deb
-fi
-
-usermod -a -G docker dev
-
-# Docker buildx
-mkdir -p ~/.docker/cli-plugins
-if [[ ! -f ~/.docker/cli-plugins/docker-buildx ]]; then
-  wget -q https://github.com/docker/buildx/releases/download/v0.6.3/buildx-v0.6.3.linux-amd64 -O ~/.docker/cli-plugins/docker-buildx
-fi
-chmod a+x ~/.docker/cli-plugins/docker-buildx
-
-# persistent volume setup
-if ! mountpoint /mnt >/dev/null 2>&1; then
+# persistent volume is setup as an LVM volume group.
+if ! lvdisplay lxc/lxc >/dev/null 2>&1; then
   device_path=$(hcloud volume describe dev-env -o format="{{ .LinuxDevice }}")
-  echo mounting $device_path on /mnt
-
-  if ! blkid $device_path | grep btrfs >/dev/null 2>&1; then
-    echo initializing filesystem
-    mkfs.btrfs $device_path
-  fi
-
-  mount $device_path /mnt
+  pvcreate -f $device_path
+  vgcreate lxc $device_path
+  lvcreate --type thin-pool -n lxc -l 95%FREE lxc
 fi
-mkdir -p /mnt/docker
-mkdir -p /mnt/home
-mkdir -p /mnt/work
 
-chown dev:dev /mnt/home
-chown dev:dev /mnt/work
+vgchange -a y lxc
+sed -i -e "s/.*auto_set_activation_skip =.*/auto_set_activation_skip = 0/" /etc/lvm/lvm.conf
 
-sudo -iu dev bash -c "mkdir -p ~dev/.projector/{cache,configs,apps}"
+if ! lvdisplay lxc/.data >/dev/null 2>&1; then lvcreate -n .data -V 10G --thinpool lxc lxc; fi
+if ! blkid /dev/lxc/.data | grep ext4 >/dev/null 2>&1; then mkfs.ext4 /dev/lxc/.data; fi
+if ! mountpoint /mnt >/dev/null 2>&1; then mount /dev/lxc/.data /mnt; fi
+if ! mountpoint /var/lib/lxc >/dev/null 2>&1; then mkdir -p /mnt/lxc; mount --bind /mnt/lxc /var/lib/lxc; fi
 
+# dev user basic setup
+mkdir -p /mnt/{home,work}
+chown dev:dev /mnt/{home,work}
+sudo -iu dev bash -c "mkdir -p ~dev/.projector/{cache,configs,apps} ~dev/.ssh"
 if [[ ! -f ~dev/.ssh/authorized_keys ]]; then
-  cat ~/.ssh/authorized_keys | sudo -iu dev bash -c 'mkdir -m 0700 ~/.ssh; cat > ~/.ssh/authorized_keys'
+  cat ~/.ssh/authorized_keys | sudo -iu dev bash -c 'cat > ~/.ssh/authorized_keys'
 fi
 chmod 0600 ~dev/.ssh/authorized_keys
 
-# Ensure Docker daemon uses persistent volume for containers + images storage.
-if ! mountpoint /var/lib/docker >/dev/null 2>&1; then
-  systemctl stop docker.service >/dev/null 2>&1
-  rm -rf /var/lib/docker
-  mkdir -p /var/lib/docker
-  mount --bind /mnt/docker /var/lib/docker
+# lxc setup
+if [[ ! -f /var/lib/lxc/dev-config ]]; then
+  cat > /var/lib/lxc/dev-config <<LXC
+lxc.cap.drop =
+lxc.mount.auto = sys:rw proc:rw cgroup-full:rw
+lxc.apparmor.profile = unconfined
+lxc.include = /usr/share/lxc/config/nesting.conf
+lxc.net.0.type = veth
+lxc.net.0.link = lxcbr0
+lxc.net.0.flags = up
+lxc.mount.entry = /mnt/home home none bind 0 0
+LXC
+fi
+
+# initialize root container
+if ! lxc-info .root >/dev/null 2>&1; then
+  lxc-create -n .root -t download -f /var/lib/lxc/dev-config -B lvm --fssize 10G -- -d archlinux -r current -a amd64 --keyserver hkps://keys.openpgp.org/
+  lxc-start .root
+  until lxc-attach .root bash <<< "ping -c1 -w1 $server_ip" >/dev/null 2>&1; do sleep 1; done
+  lxc-attach .root bash <<INITROOT
+set -ueo pipefail
+
+pacman --noconfirm -Syu
+pacman --noconfirm -S \
+  base-devel man git docker openssh \
+  python-pip libxext libxi libxrender libxtst freetype2
+
+systemctl enable --now {sshd.service,docker.socket}
+
+pip3 install projector-installer
+# Create dev user
+useradd -G docker -d /home dev
+echo 'dev ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/dev
+INITROOT
 fi
 HERE
-
-dockerfile_hash=$(shasum -a 512 Dockerfile | cut -d' ' -f1)
-if ! $ssh_command -n root@$server_ip docker inspect dev-env-image:$dockerfile_hash >/dev/null 2>&1; then
-  time cat Dockerfile | $ssh_command root@$server_ip docker buildx build - -t dev-env-image:$dockerfile_hash -t dev-env-image
-fi
 
 touch .state/provisioned
 fi
