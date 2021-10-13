@@ -3,7 +3,7 @@ set -ueo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 location=fsn1
-server_type=cpx31
+server_type=cpx51
 ssh_command="ssh -F ssh_config"
 
 (
