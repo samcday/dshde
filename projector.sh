@@ -7,7 +7,7 @@ ide=$2
 
 projector_port=$(./workon.sh $ws <<HERE
 set -ueo pipefail
-
+{
 if [[ ! -f /etc/systemd/user/projector@.service ]]; then
   cat | sudo tee /etc/systemd/user/projector@.service > /dev/null <<UNIT
 [Service]
@@ -24,6 +24,8 @@ if ! projector config show "$ide" | grep "Configuration: $ide$" >/dev/null 2>&1;
 fi
 
 systemctl --user start projector@"$(systemd-escape "$ide")"
+} >&2
+
 projector config show "$ide" | grep "Projector port: " | cut -d':' -f2 | tr -d ' '
 HERE
 )
