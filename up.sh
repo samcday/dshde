@@ -90,6 +90,10 @@ if ! systemctl status dshde-shutdown.timer >/dev/null 2>&1; then
   systemd-run -u dshde-shutdown --on-boot=59m --on-unit-active=1h --timer-property=AccuracySec=1 bash ~/dshde-shutdown.sh
 fi
 
+# sshd tweaks
+# make sure inactive clients are booted. This ensures the self-expiry behaviour is reliable.
+sed -i -e "s/#ClientAliveInterval.*/ClientAliveInterval 15/" -e "s/#ClientAliveCountMax.*/ClientAliveCountMax 3/" /etc/ssh/sshd_config
+
 # SSH server tough. Sacred knowledge make SSH server strong.
 # https://www.sshaudit.com/hardening_guides.html#debian_11
 if [[ ! -f /etc/ssh/sshd_config.d/ssh-audit_hardening.conf ]]; then

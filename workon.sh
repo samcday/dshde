@@ -12,14 +12,13 @@ if ! sudo lxc-info $1 >/dev/null 2>&1; then
 fi
 sudo lxc-start $1 2> >(grep -v "Container is already running" >&2)
 } >&2
+
+until [[ "\$(sudo lxc-info -i -H $1 2>/dev/null | head -n1)" != "" ]]; do sleep 0.5; done
 sudo lxc-info -i -H $1 | head -n1
 HERE
 )
 
 ssh_command="ssh -F ssh_config -J root@$(cat .state/ip) dev@$ip"
-echo $ssh_command
-exit
-
 until $ssh_command -n echo hi mom >/dev/null 2>&1; do sleep 1; done
 
 if [ -t 0 ]; then
