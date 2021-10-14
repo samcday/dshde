@@ -152,6 +152,7 @@ lxc.include = /usr/share/lxc/config/nesting.conf
 lxc.net.0.type = veth
 lxc.net.0.link = lxcbr0
 lxc.net.0.flags = up
+lxc.net.0.hwaddr = 00:16:3e:xx:xx:xx
 lxc.mount.entry = /mnt/home home none bind 0 0
 LXC
 fi

@@ -33,4 +33,6 @@ HERE
 local_port=1234
 WS_SSH_EXTRA="-O forward -L$local_port:localhost:$projector_port" ./workon.sh $ws
 
+while ! ncat -z localhost $local_port >/dev/null 2>&1; do sleep 0.25; done
+
 echo "http://localhost:$local_port/?notSecureWarning=false"
