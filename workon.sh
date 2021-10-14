@@ -6,15 +6,16 @@ ip=$(./up.sh <<HERE
 set -ueo pipefail
 {
 mkdir -p /mnt/work/$1
-if ! sudo lxc-info $1 >/dev/null 2>&1; then
-  sudo lxc-copy -o /dev/stdout -n .root -N $1 -B lvm -s -a
-  echo "lxc.mount.entry = /mnt/work/$1 work none bind,create=dir 0 0" | sudo tee -a /var/lib/lxc/$1/config > /dev/null
+if ! lxc-info $1 >/dev/null 2>&1; then
+  echo creating new workspace
+  lxc-copy -o /dev/stdout -n template -N $1 -B lvm -s -a
+  echo "lxc.mount.entry = /mnt/work/$1 work none bind,create=dir 0 0" >> /var/lib/lxc/$1/config
 fi
-sudo lxc-start $1 2> >(grep -v "Container is already running" >&2)
-until [[ "\$(sudo lxc-info -i -H $1 2>/dev/null | head -n1)" != "" ]]; do sleep 0.5; done
+lxc-start $1 2> >(grep -v "Container is already running" >&2)
+until [[ "\$(lxc-info -i -H $1 2>/dev/null | head -n1)" != "" ]]; do sleep 0.5; done
 } >&2
 
-sudo lxc-info -i -H $1 | head -n1
+lxc-info -i -H $1 | head -n1
 HERE
 )
 

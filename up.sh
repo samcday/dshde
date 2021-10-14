@@ -111,9 +111,6 @@ fi
 export HCLOUD_TOKEN
 export DEBIAN_FRONTEND=noninteractive
 
-if ! id -u dev >/dev/null 2>&1; then useradd -d /mnt/home dev -s /bin/bash; fi
-if [[ ! -f /etc/sudoers.d/dev ]]; then echo 'dev ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/dev; fi
-
 # package deps
 if ! dpkg -s lxc >/dev/null 2>&1; then apt-get install -y hcloud-cli lxc gpg dirmngr; fi
 
@@ -125,7 +122,7 @@ if ! lvdisplay lxc/lxc >/dev/null 2>&1; then
   lvcreate --type thin-pool -n lxc -l 95%FREE lxc
 fi
 
-vgchange -a y lxc
+vgchange -a y lxc >/dev/null
 sed -i -e "s/.*auto_set_activation_skip =.*/auto_set_activation_skip = 0/" /etc/lvm/lvm.conf
 
 if ! lvdisplay lxc/.data >/dev/null 2>&1; then lvcreate -n .data -V 10G --thinpool lxc lxc; fi
@@ -133,18 +130,11 @@ if ! blkid /dev/lxc/.data | grep ext4 >/dev/null 2>&1; then mkfs.ext4 /dev/lxc/.
 if ! mountpoint /mnt >/dev/null 2>&1; then mount /dev/lxc/.data /mnt; fi
 if ! mountpoint /var/lib/lxc >/dev/null 2>&1; then mkdir -p /mnt/lxc; mount --bind /mnt/lxc /var/lib/lxc; fi
 
-# dev user basic setup
-mkdir -p /mnt/{home,work}
-chown dev:dev /mnt/{home,work}
-sudo -iu dev bash -c "mkdir -p ~dev/.projector/{cache,configs,apps} ~dev/.ssh"
-if [[ ! -f ~dev/.ssh/authorized_keys ]]; then
-  cat ~/.ssh/authorized_keys | sudo -iu dev bash -c 'cat > ~/.ssh/authorized_keys'
-fi
-chmod 0600 ~dev/.ssh/authorized_keys
+mkdir -p /mnt/work
+chown 1000:1000 /mnt/work
 
 # lxc setup
-if [[ ! -f /var/lib/lxc/dev-config ]]; then
-  cat > /var/lib/lxc/dev-config <<LXC
+cat > /var/lib/lxc/dev-config <<LXC
 lxc.cap.drop =
 lxc.mount.auto = sys:rw proc:rw cgroup-full:rw
 lxc.apparmor.profile = unconfined
@@ -153,40 +143,37 @@ lxc.net.0.type = veth
 lxc.net.0.link = lxcbr0
 lxc.net.0.flags = up
 lxc.net.0.hwaddr = 00:16:3e:xx:xx:xx
-lxc.mount.entry = /mnt/home home none bind 0 0
 LXC
+
+# initialize template container
+if ! lxc-info template >/dev/null 2>&1; then
+  lxc-create -n template -t download -f /var/lib/lxc/dev-config -B lvm --fssize 10G -- -d archlinux -r current -a amd64 --keyserver hkps://keys.openpgp.org/
 fi
 
-# initialize root container
-if ! lxc-info .root >/dev/null 2>&1; then
-  lxc-create -n .root -t download -f /var/lib/lxc/dev-config -B lvm --fssize 10G -- -d archlinux -r current -a amd64 --keyserver hkps://keys.openpgp.org/
-  lxc-start .root
-  until lxc-attach .root bash <<< "ping -c1 -w1 $server_ip" >/dev/null 2>&1; do sleep 1; done
-  lxc-attach .root bash <<INITROOT
-set -ueo pipefail
-
-pacman --noconfirm -Syu
-pacman --noconfirm -S \
-  base-devel man git docker openssh \
-  python-pip libxext libxi libxrender libxtst freetype2
-
-systemctl enable --now {sshd.service,docker.socket}
-
-pip3 install projector-installer
-# Create dev user
-useradd -G docker -d /home dev
-echo 'dev ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/dev
-INITROOT
+if [[ "$(lxc-info template --state -H)" != "RUNNING" ]]; then
+  lxc-start template
 fi
+
+until lxc-attach template bash <<< "ping -c1 -w1 $server_ip" >/dev/null 2>&1; do sleep 1; done
 HERE
 
 touch .state/provisioned
 fi
+
+if [ .state/template -ot template-init.sh ]; then
+  cat template-init.sh | $ssh_command root@$server_ip lxc-attach template bash
+  touch .state/template
+fi
+
+# Seed template ssh authorized_keys.
+$ssh_command root@$server_ip bash <<HERE
+cat ~/.ssh/authorized_keys | lxc-attach -u 1000 template -- bash -c 'mkdir -p ~dev/.ssh && cat - ~dev/.ssh/authorized_keys 2>/dev/null | uniq > ~dev/.ssh/authorized_keys2 && mv ~dev/.ssh/authorized_keys2 ~dev/.ssh/authorized_keys'
+HERE
 }>&2
 
 server_ip=$(cat .state/ip)
 if [ ! -t 0 ]; then
-  exec $ssh_command ${SSH_EXTRA:-} -T dev@$server_ip bash <&0
+  exec $ssh_command ${SSH_EXTRA:-} -T root@$server_ip bash <&0
 else
-  exec $ssh_command ${SSH_EXTRA:-} dev@$server_ip
+  exec $ssh_command ${SSH_EXTRA:-} root@$server_ip
 fi
